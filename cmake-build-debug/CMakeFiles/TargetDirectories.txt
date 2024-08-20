@@ -1,0 +1,3 @@
+/mnt/c/Users/wilke/CLionProjects/cs3100/Challenge6/cmake-build-debug/CMakeFiles/Challenge6.dir
+/mnt/c/Users/wilke/CLionProjects/cs3100/Challenge6/cmake-build-debug/CMakeFiles/edit_cache.dir
+/mnt/c/Users/wilke/CLionProjects/cs3100/Challenge6/cmake-build-debug/CMakeFiles/rebuild_cache.dir

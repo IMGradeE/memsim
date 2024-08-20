@@ -1,0 +1,1 @@
+/usr/bin/cc -fPIC -g -shared -Wl,-soname,libChallenge6.so -o libChallenge6.so CMakeFiles/Challenge6.dir/library.c.o CMakeFiles/Challenge6.dir/simulator.c.o 

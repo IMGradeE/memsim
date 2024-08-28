@@ -1,0 +1,7 @@
+LD_LIBRARY_PATH=/mnt/c/Users/wilke/CLionProjects/cs3100/Challenge6; export LD_LIBRARY_PATH; echo $LD_LIBRARY_PATH;
+(output) /mnt/c/Users/wilke/CLionProjects/cs3100/Challenge6
+
+gcc -c -fPIC -o ms.o memsim.c
+gcc -shared -o libms.so ms.o
+gcc -L. -o memorysimulator simulator.c -lms -lm
+./memorysimulator mem_file1

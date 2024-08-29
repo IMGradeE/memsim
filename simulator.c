@@ -87,6 +87,22 @@ void init_memory(FILE *stream, int *page_table_location, int *physical_memory, i
 
 }
 
+/*
+ * This function makes the following assumptions:
+ *     the fourth line in the memory file indicates a range of lines in the memory file that contain frame numbers:
+ *         the range in interval notation is (4, 4+{value at line 4}]
+ *
+ *     values in the range (4, 4+{value at line 4}] are inserted into physical memory starting at the location of the page table
+ *         in physical memory at the position determined by the value in the memory file at line number 4
+ *         skipping any lines in the file whose values fall within the range :
+ *             [physical_page_table_location, physical_page_table_location+page_count]
+ *         until there are [page_count] frame numbers in the page table.
+ *     values are then added to frames in physical memory from the lines in the file contained in the range:
+ *         (4+{value at line 4}, {EOF||num_virtual_words}]
+ *     these values are added into the frames defined in the page table, moving to the next frame when the number of words added to a frame
+ *     modulus words_per_frame == 0
+ *     when the operation is over the function returns.
+ * */
 void init_memory_alternate(FILE *stream, int *page_table_location, int *physical_memory, int page_count, int num_words_virtual,
                     int num_page_frame_words) {
     // page_table_location is always at line 4 in the file, list of mappings starts there and ends at 4+page_table_location

@@ -12,134 +12,206 @@
 #include <errno.h>
 #include <time.h>
 #include "memsim.h"
-
-int init_memory(FILE* stream, int* page_table_location, int* physical_memory, int page_count, int num_words_virtual, int num_page_frame_words){
+/*
+ * This function makes the following assumptions:
+ *     the fourth line in the memory file indicates a range of lines in the memory file that contain frame numbers:
+ *         the range in interval notation is (4, 4+{value at line 4}]
+ *     the value at 4+{value at line 4}+1 is the location of the page table in physical memory.
+ *     values in the range (4, 4+{value at line 4}] are inserted into physical memory starting at the location of the page table
+ *         in physical memory at the position determined by the value in the memory file at line number 4+{value at line 4}+1,
+ *         skipping any lines in the file whose values fall within the range :
+ *             [physical_page_table_location, physical_page_table_location+page_count]
+ *         until there are [page_count] frame numbers in the page table.
+ *     values are then added to frames in physical memory from the lines in the file contained in the range:
+ *         (4+{value at line 4}+1, {EOF||num_virtual_words}]
+ *     these values are added into the frames defined in the page table, moving to the next frame when the number of words added to a frame
+ *     modulus words_per_frame == 0
+ *     when the operation is over the function returns.
+ * */
+void init_memory(FILE *stream, int *page_table_location, int *physical_memory, int page_count, int num_words_virtual,
+                 int num_page_frame_words) {
     // page_table_location is always at line 4 in the file, list of mappings starts there and ends at 4+page_table_location
-    const int FILEOFFSET = 4;
+    fpos_t content_start;
+    fpos_t pt_beginning;
+    fpos_t bounds_check;
+    fgetpos(stream, &pt_beginning); // (Store a pointer to the 4th location in the file)
 
-    // move fp -> beginning of page table entries
+    // move filepointer -> line before physical page table location
     for (int i = 0; i < *page_table_location; ++i) {
         fscanf(stream, "%*d");
     }
-    // get the value for the physical page table location
+
+    // get the value for the physical page table location (the value at line 4+page_table_location)
     fscanf(stream, "%d", page_table_location);
-    // store fpos
-    fpos_t content_start;
+
+    // store fpos where the memory contents begin
     fgetpos(stream, &content_start);
-    // reset fp to BOF
-    fseek(stream,0,SEEK_SET);
+
+    // reset fp to pt_beginning
+    fsetpos(stream, &pt_beginning);
+
     // initialize constants representing page table boundaries.
-    const int
-        pt_frame_interval = page_count >> 2,
-        pt_lower_b = *page_table_location >> 2,
-        pt_upper_b = pt_lower_b + pt_frame_interval,
-        loop_bound = FILEOFFSET + page_count + pt_frame_interval;
+    const int pt_upper_b = *page_table_location+page_count; // indicates the first frame the page table does not own
+
     int temp;
-    // retrieve page_count entries and insert into page table
-    for (int i = 0, j = *page_table_location; i < loop_bound; ++i) {
-        // skip first four entries and the frames we are writing to.
-        if(i < FILEOFFSET) {
-            fscanf(stream, "%*d");
-        }else{
-            fscanf(stream,"%d", &temp);
-            if (temp < pt_lower_b || temp >= pt_upper_b){
-                // insert frame numbers into physical memory starting from [page_table_location] up to [page_count - 1] for
-                // (page_count) total page mappings, skipping frames that are values in the page table (4,5 in mem_file1).
-                physical_memory[j] = temp;
-                ++j;
-            }
+
+    // retrieve page_count entries and insert into page table starting at pt_beginning, loop until all page table entries
+    // contain a frame number from the file
+    int j = *page_table_location;
+    while((j < pt_upper_b) && (&bounds_check != &content_start)){
+        fscanf(stream,"%d", &temp);
+        temp *= num_page_frame_words;
+        if (temp < *page_table_location || temp >= pt_upper_b){ // skip frame numbers that would map a vaddr to the page table
+            // insert frame numbers into physical memory starting from [page_table_location] up to [page_count - 1] for
+            // (page_count) total page mappings, skipping frames that are values in the page table (4,5 in mem_file1).
+            physical_memory[j] = temp;
+            ++j;
         }
+        fgetpos(stream, &bounds_check); // ensures temp is never a memory word's value
     }
-    // reset fp to the entry with the first piece of data
+
+    // reset fp to the entry before the first piece of data
     fsetpos(stream, &content_start);
 
     // insert remaining entries into array
-    for (int i = 0 ; i < num_words_virtual + page_count; ++i) {
+    for (int i = 0, l = 0, k, frameNumberWOffset; i < num_words_virtual + page_count; ++i, ++l) {
+
         if(i == *page_table_location){
             i+= page_count;
         }
-        fscanf(stream, "%d", &physical_memory[i]);
+
+        k = *page_table_location + (l/num_page_frame_words); // this is (base + page)
+        frameNumberWOffset = physical_memory[k] + (i%num_page_frame_words);
+        fscanf(stream, "%d", &physical_memory[frameNumberWOffset]);
     }
-    return pt_frame_interval << 2;
+
 }
 
+void init_memory_alternate(FILE *stream, int *page_table_location, int *physical_memory, int page_count, int num_words_virtual,
+                    int num_page_frame_words) {
+    // page_table_location is always at line 4 in the file, list of mappings starts there and ends at 4+page_table_location
+    fpos_t content_start;
+    fpos_t pt_beginning;
+    fpos_t bounds_check;
+    fgetpos(stream, &pt_beginning); // (Store a pointer to the 4th location in the file)
+
+    // move filepointer -> line before physical page table location
+    for (int i = 0; i < *page_table_location; ++i) {
+        fscanf(stream, "%*d");
+    }
+
+    // store fpos where the memory contents begin
+    fgetpos(stream, &content_start);
+
+    // reset fp to pt_beginning
+    fsetpos(stream, &pt_beginning);
+
+    // initialize constants representing page table boundaries.
+    const int pt_upper_b = *page_table_location + page_count; // indicates the first frame the page table does not own
+
+    int temp;
+
+    // retrieve page_count entries and insert into page table starting at pt_beginning, loop until all page table entries
+    // contain a frame number from the file
+    int j = *page_table_location;
+    while((j < pt_upper_b) && (&bounds_check != &content_start)){
+        fscanf(stream,"%d", &temp);
+        temp *= num_page_frame_words;
+        if (temp < *page_table_location || temp >= pt_upper_b){ // skip frame numbers that would map a vaddr to the page table
+            // insert frame numbers into physical memory starting from [page_table_location] up to [page_count - 1] for
+            // (page_count) total page mappings, skipping frames that are values in the page table (4,5 in mem_file1).
+            physical_memory[j] = temp;
+            ++j;
+        }
+        fgetpos(stream, &bounds_check); // ensures temp is never a memory word's value
+    }
+
+    // reset fp to the entry before the first piece of data
+    fsetpos(stream, &content_start);
+
+    // insert remaining entries into array
+    for (int i = 0, l = 0, k, frameNumberWOffset; i < num_words_virtual + page_count; ++i, ++l) {
+
+        if(i == *page_table_location){
+            i+= page_count;
+        }
+
+        k = *page_table_location + (l/num_page_frame_words); // this is (base + page)
+        frameNumberWOffset = physical_memory[k] + (i%num_page_frame_words);
+        fscanf(stream, "%d", &physical_memory[frameNumberWOffset]);
+    }
+}
 
 int main(const int argc, const char** argv){
     int
-        num_words_virtual =0,
-        num_words_physical=0,
-        num_page_frame_words=0,
-        page_table_location=0,
-        temp=0;
+        wordsVirtual,
+        wordsPhysical,
+        frameWords,
+        pageTableLocation,
+        addr,
+        value;
+    char command = ' ';
+    const char* FERROR = "File could not be read. Try again";
+    const char* HELP = "%15s t <virtual_address>\n%15s r <virtual_address>\n%15s w <virtual_address>\n";
+    const char* WELCOME = "Welcome to the Paged Memory Simulator\n";
+    // end initial declarations //
 
     FILE *stream;
-    if(argc > 1){
-         stream = fopen(argv[1], "r");
-    }
-    else{
+    stream = fopen(argv[1], "r");
+
+    // get first four values from file
+    fscanf(stream, "%d\n%d\n%d\n%d", &wordsVirtual, &wordsPhysical, &frameWords, &pageTableLocation);
+
+    // Early return and error message if the first four values cannot be verified.
+    if(!file_verification(wordsVirtual, wordsPhysical, frameWords, pageTableLocation)){
+        printf("%s", FERROR);
         return -1;
     }
 
-    fscanf(stream, "%d\n%d\n%d\n%d", &num_words_virtual, &num_words_physical, &num_page_frame_words, &page_table_location);
-    // Early return and error message if file parameters are not all powers of two.
-    int t;
-    t = file_verification(num_words_virtual, num_words_physical, num_page_frame_words, page_table_location);
-    if(t == 0){
-        printf("File could not be read or is of the wrong type. Please try again with a different file reference.");
-        return -1;
-    }
+    // initialize consts for the number of bits used for the offset and the number of pages and frames needed to fit all
+    // virtual memory words into physical memory
+    const int offsetBits = (int) log2(frameWords); // number of bits used for offset
+    const int numPages = wordsVirtual / frameWords; // number of pages
 
-    const int addrSizeBitsPhysical = log2(num_words_physical);
-    const int addrSizeBitsLogical  = log2(num_words_virtual);
-    const int offsetNumBits = (int) log2(num_page_frame_words);
-    const int frame_numBits = addrSizeBitsPhysical - offsetNumBits;
-    const int page_numBits = addrSizeBitsLogical - offsetNumBits;
+    // initialize an array with a capacity equal to the size of the physical memory indicated in the file
+    int* physical_memory = malloc( sizeof(int[wordsPhysical]));
+    // populate the array
+    init_memory_alternate(stream, &pageTableLocation, physical_memory, numPages, wordsVirtual, frameWords);
 
-    const int numPages = num_words_virtual / num_page_frame_words; // number of pages
-    const int numFrames = num_words_physical / num_page_frame_words;
+    // print welcome message
+    printf("%s", WELCOME);
 
-    int* physical_memory = malloc( sizeof(int[num_words_physical]));
-    // call init_memory
-    int page_table_interval = init_memory(stream, &page_table_location, physical_memory, numPages, num_words_virtual, num_page_frame_words);
-    char command;
-    int addr;
-    int value;
+    // begin CLI
+    while (true){ // Checking in loop for q to avoid executing a full loop on sentinel input.
+        printf("> ");
+        scanf(" %c", &command); // consume whitespace and first argument
 
-    while (true){
-        printf("\nPress h for help, or Enter a command of the form <flag> <argument>: ");
-        scanf(" %c", &command);
-
-        if (command == 'q') {
-            break;
-        }else if(command == 'h') {
-            printf(
-                    "%15s t <virtual_address>\n"
-                    "%15s r <virtual_address>\n"
-                    "%15s w <virtual_address>\n", "Address translation:", "Read from memory:", "Write to memory:");
+        if(command == 'h') {
+            printf( HELP, "Address translation:", "Read from memory:", "Write to memory:");
             continue;
-        }
-        scanf("%d", &addr);
-        if (command == 't') {
-            printf("Vaddr %d maps to the physical address %d\n",
-                   addr,
-                   get_physical_address(addr, offsetNumBits, page_table_location, physical_memory));
-        }else if (command == 'r') {
-            printf("Value stored at Vaddr %d = %d\n", addr,
-                   read_value(addr, offsetNumBits, page_table_location, physical_memory));
-        }else if (command == 'w') {
-            scanf("%d", &value);
-            printf("Setting value stored at Vaddr %d to %d\n", addr, value);
-            int p_addr = get_physical_address(addr,offsetNumBits,page_table_location,physical_memory);
-            if( p_addr >= page_table_location + page_table_interval ||p_addr < page_table_location ){
-                write_value(value,addr, offsetNumBits, page_table_location, physical_memory);
-                printf("Value stored at Vaddr %d = %d\n", addr, read_value(addr, offsetNumBits, page_table_location, physical_memory));
-            }else{
-                printf("Can't set value stored at Vaddr %d to %d because doing so would overwrite the page table.\n", addr, value);
-            }
-        }else{
-            printf("Unrecognized command or format. Try h for help.\n");
+        }else if(command == 'q'){
+            break;
         }
 
+        // parse second command
+        scanf("%d", &addr); // consume second operand when it is likely there is a second argument
+        if (command == 't') {
+            printf("%d -> %d\n",
+                   addr,
+                   get_physical_address(addr, offsetBits, pageTableLocation, physical_memory)
+                   );
+        }else if (command == 'r') {
+            printf("%d: %d\n",
+                   addr,
+                   read_value(addr, offsetBits, pageTableLocation, physical_memory)
+                   );
+        }else if (command == 'w') {
+            // no longer checking if an address is in the page table, since all virtual addresses map to frames
+            // outside the page table. (a virtual address can never address a page table entry)
+            scanf("%d", &value); // get third arg, since we know there should be a third arg
+            printf("%d: %d\n", addr, value);
+            write_value(value, addr, offsetBits, pageTableLocation, physical_memory);
+        }
     }
     // free heap allocated memory
     free(physical_memory);

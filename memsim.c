@@ -17,13 +17,13 @@ unsigned int get_physical_address(unsigned int virtual_address,
                          unsigned int page_table_loc,
                          const int* physical_memory){
     unsigned int
-    page_number = (virtual_address >> offset_bits),
-    index = (page_number + page_table_loc),
-    frame_number = physical_memory[index],
-    offset_bits_mask = page_number << offset_bits,
-    offset = virtual_address ^ offset_bits_mask;
+        page_number = (virtual_address >> offset_bits),
+        index = (page_number + page_table_loc),
+        frame_number = (physical_memory[index] >> offset_bits) << offset_bits,
+        offset_bits_mask = page_number << offset_bits,
+        offset = virtual_address ^ offset_bits_mask;
 
-    return ((frame_number << offset_bits) + offset);
+    return (frame_number|offset);
 };
 
 //Takes a virtual address and returns the value at the corresponding physical address. The virtual address, the number of bits used for the offset, the starting location of the page table(s), and a pointer to the physical memory are also passed as parameters.
@@ -46,7 +46,7 @@ void write_value( int value,
 };
 
 // verification helper function
-int file_verification(const unsigned int num_w_v,
+bool file_verification(const unsigned int num_w_v,
                        const unsigned int num_w_p,
                        const unsigned int num_p_f,
                        const unsigned int num_p_t_l){
@@ -56,9 +56,5 @@ int file_verification(const unsigned int num_w_v,
     check &= is_power_of_2(num_w_p);
     check &= is_power_of_2(num_p_f);
     check &= (num_p_t_l%num_p_f == 0); // I forgot to do this lol
-    if (check){
-        return 1;
-    }else{
-        return 0;
-    }
+    return check;
 }

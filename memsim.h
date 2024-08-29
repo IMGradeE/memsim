@@ -25,7 +25,7 @@ extern void write_value(int value,
                  unsigned int page_table_loc,
                  int* physical_memory);
 
-extern int file_verification(unsigned int num_w_v,
+extern bool file_verification(unsigned int num_w_v,
                        unsigned int num_w_p,
                        unsigned int num_p_f,
                        unsigned int num_p_t_l);

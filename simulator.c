@@ -12,151 +12,59 @@
 #include <errno.h>
 #include <time.h>
 #include "memsim.h"
+
 /*
- * This function makes the following assumptions:
- *     the fourth line in the memory file indicates a range of lines in the memory file that contain frame numbers:
- *         the range in interval notation is (4, 4+{value at line 4}]
- *     the value at 4+{value at line 4}+1 is the location of the page table in physical memory.
- *     values in the range (4, 4+{value at line 4}] are inserted into physical memory starting at the location of the page table
- *         in physical memory at the position determined by the value in the memory file at line number 4+{value at line 4}+1,
- *         skipping any lines in the file whose values fall within the range :
- *             [physical_page_table_location, physical_page_table_location+page_count]
- *         until there are [page_count] frame numbers in the page table.
- *     values are then added to frames in physical memory from the lines in the file contained in the range:
- *         (4+{value at line 4}+1, {EOF||num_virtual_words}]
- *     these values are added into the frames defined in the page table, moving to the next frame when the number of words added to a frame
- *     modulus words_per_frame == 0
- *     when the operation is over the function returns.
+ * This function varies from the last by assuming that the frame numbers are to be stored as written in the file, and
+ * that the frame numbers begin at an offset indicated on line 4, and all values in the set of lines
+ * (4, offset)U[offset+page_count, EOF|virtual_words+page_count] are words to be stored within frames in physical memory.
  * */
 void init_memory(FILE *stream, int *page_table_location, int *physical_memory, int page_count, int num_words_virtual,
-                 int num_page_frame_words) {
+                           int num_page_frame_words, int* mmu) {
     // page_table_location is always at line 4 in the file, list of mappings starts there and ends at 4+page_table_location
-    fpos_t content_start;
-    fpos_t pt_beginning;
-    fpos_t bounds_check;
-    fgetpos(stream, &pt_beginning); // (Store a pointer to the 4th location in the file)
+    fpos_t
+        content_start,
+        pt_beginning,
+        content_gap_end;
+
+    fgetpos(stream, &content_start);
 
     // move filepointer -> line before physical page table location
     for (int i = 0; i < *page_table_location; ++i) {
         fscanf(stream, "%*d");
     }
 
-    // get the value for the physical page table location (the value at line 4+page_table_location)
-    fscanf(stream, "%d", page_table_location);
-
-    // store fpos where the memory contents begin
-    fgetpos(stream, &content_start);
-
-    // reset fp to pt_beginning
-    fsetpos(stream, &pt_beginning);
-
-    // initialize constants representing page table boundaries.
-    const int pt_upper_b = *page_table_location+page_count; // indicates the first frame the page table does not own
+    // (Store a pointer to the location in the file where the frame numbers are stored)
+    fgetpos(stream, &pt_beginning);
 
     int temp;
-
     // retrieve page_count entries and insert into page table starting at pt_beginning, loop until all page table entries
     // contain a frame number from the file
-    int j = *page_table_location;
-    while((j < pt_upper_b) && (&bounds_check != &content_start)){
-        fscanf(stream,"%d", &temp);
-        temp *= num_page_frame_words;
-        if (temp < *page_table_location || temp >= pt_upper_b){ // skip frame numbers that would map a vaddr to the page table
-            // insert frame numbers into physical memory starting from [page_table_location] up to [page_count - 1] for
-            // (page_count) total page mappings, skipping frames that are values in the page table (4,5 in mem_file1).
-            physical_memory[j] = temp;
-            ++j;
-        }
-        fgetpos(stream, &bounds_check); // ensures temp is never a memory word's value
-    }
 
-    // reset fp to the entry before the first piece of data
+    int j = 0;
+    while(j < page_count){
+        fscanf(stream,"%d", &temp);
+        mmu[j] = temp;
+        ++j;
+    }
+    fgetpos(stream, &content_gap_end);
     fsetpos(stream, &content_start);
 
-    // insert remaining entries into array
     for (int i = 0, l = 0, k, frameNumberWOffset; i < num_words_virtual + page_count; ++i, ++l) {
-
         if(i == *page_table_location){
-            i+= page_count;
+            i += page_count;
+            fsetpos(stream, &content_gap_end);
+
         }
+        k = (l/num_page_frame_words); // this is (base + page)
+        frameNumberWOffset = mmu[k] + (i%num_page_frame_words);
+        int temp2;
+        fscanf(stream, "%d\n", &temp2);
+        physical_memory[frameNumberWOffset] = temp2;
 
-        k = *page_table_location + (l/num_page_frame_words); // this is (base + page)
-        frameNumberWOffset = physical_memory[k] + (i%num_page_frame_words);
-        fscanf(stream, "%d", &physical_memory[frameNumberWOffset]);
     }
-
 }
 
-/*
- * This function makes the following assumptions:
- *     the fourth line in the memory file indicates a range of lines in the memory file that contain frame numbers:
- *         the range in interval notation is (4, 4+{value at line 4}]
- *
- *     values in the range (4, 4+{value at line 4}] are inserted into physical memory starting at the location of the page table
- *         in physical memory at the position determined by the value in the memory file at line number 4
- *         skipping any lines in the file whose values fall within the range :
- *             [physical_page_table_location, physical_page_table_location+page_count]
- *         until there are [page_count] frame numbers in the page table.
- *     values are then added to frames in physical memory from the lines in the file contained in the range:
- *         (4+{value at line 4}, {EOF||num_virtual_words}]
- *     these values are added into the frames defined in the page table, moving to the next frame when the number of words added to a frame
- *     modulus words_per_frame == 0
- *     when the operation is over the function returns.
- * */
-void init_memory_alternate(FILE *stream, int *page_table_location, int *physical_memory, int page_count, int num_words_virtual,
-                    int num_page_frame_words) {
-    // page_table_location is always at line 4 in the file, list of mappings starts there and ends at 4+page_table_location
-    fpos_t content_start;
-    fpos_t pt_beginning;
-    fpos_t bounds_check;
-    fgetpos(stream, &pt_beginning); // (Store a pointer to the 4th location in the file)
 
-    // move filepointer -> line before physical page table location
-    for (int i = 0; i < *page_table_location; ++i) {
-        fscanf(stream, "%*d");
-    }
-
-    // store fpos where the memory contents begin
-    fgetpos(stream, &content_start);
-
-    // reset fp to pt_beginning
-    fsetpos(stream, &pt_beginning);
-
-    // initialize constants representing page table boundaries.
-    const int pt_upper_b = *page_table_location + page_count; // indicates the first frame the page table does not own
-
-    int temp;
-
-    // retrieve page_count entries and insert into page table starting at pt_beginning, loop until all page table entries
-    // contain a frame number from the file
-    int j = *page_table_location;
-    while((j < pt_upper_b) && (&bounds_check != &content_start)){
-        fscanf(stream,"%d", &temp);
-        temp *= num_page_frame_words;
-        if (temp < *page_table_location || temp >= pt_upper_b){ // skip frame numbers that would map a vaddr to the page table
-            // insert frame numbers into physical memory starting from [page_table_location] up to [page_count - 1] for
-            // (page_count) total page mappings, skipping frames that are values in the page table (4,5 in mem_file1).
-            physical_memory[j] = temp;
-            ++j;
-        }
-        fgetpos(stream, &bounds_check); // ensures temp is never a memory word's value
-    }
-
-    // reset fp to the entry before the first piece of data
-    fsetpos(stream, &content_start);
-
-    // insert remaining entries into array
-    for (int i = 0, l = 0, k, frameNumberWOffset; i < num_words_virtual + page_count; ++i, ++l) {
-
-        if(i == *page_table_location){
-            i+= page_count;
-        }
-
-        k = *page_table_location + (l/num_page_frame_words); // this is (base + page)
-        frameNumberWOffset = physical_memory[k] + (i%num_page_frame_words);
-        fscanf(stream, "%d", &physical_memory[frameNumberWOffset]);
-    }
-}
 
 int main(const int argc, const char** argv){
     int
@@ -191,15 +99,16 @@ int main(const int argc, const char** argv){
 
     // initialize an array with a capacity equal to the size of the physical memory indicated in the file
     int* physical_memory = malloc( sizeof(int[wordsPhysical]));
+    int* mmu = malloc( sizeof(int[numPages]));
+
     // populate the array
-    init_memory_alternate(stream, &pageTableLocation, physical_memory, numPages, wordsVirtual, frameWords);
+    init_memory(stream, &pageTableLocation, physical_memory, numPages, wordsVirtual, frameWords, mmu);
 
     // print welcome message
     printf("%s", WELCOME);
-
     // begin CLI
     while (true){ // Checking in loop for q to avoid executing a full loop on sentinel input.
-        printf("> ");
+        printf(">");
         scanf(" %c", &command); // consume whitespace and first argument
 
         if(command == 'h') {
@@ -211,30 +120,23 @@ int main(const int argc, const char** argv){
 
         // parse second command
         scanf("%d", &addr); // consume second operand when it is likely there is a second argument
+        unsigned int p_addr = get_physical_address(addr, offsetBits, pageTableLocation, mmu);
         if (command == 't') {
-            printf("%d -> %d\n",
-                   addr,
-                   get_physical_address(addr, offsetBits, pageTableLocation, physical_memory)
-                   );
+            printf("%d -> %d\n", addr, p_addr);
         }else if (command == 'r') {
-            printf("%d: %d\n",
-                   addr,
-                   read_value(addr, offsetBits, pageTableLocation, physical_memory)
-                   );
+            printf("%d: %d\n", addr, read_value(p_addr, offsetBits, pageTableLocation, physical_memory));
         }else if (command == 'w') {
             // no longer checking if an address is in the page table, since all virtual addresses map to frames
             // outside the page table. (a virtual address can never address a page table entry)
             scanf("%d", &value); // get third arg, since we know there should be a third arg
             printf("%d: %d\n", addr, value);
-            write_value(value, addr, offsetBits, pageTableLocation, physical_memory);
+            write_value(value, p_addr, offsetBits, pageTableLocation, physical_memory);
         }
     }
     // free heap allocated memory
     free(physical_memory);
+    free(mmu);
     fclose(stream);
     return 0;
 }
 
-
-// Submission:
-// Submit your assignment as a zip file containing, the .c and .h files, the compiled .so library, the compiled executable, your additional memory files and a readme with every command you used to compile your library, and executable.  Including any commands used to set env variables, or generate intermediate steps (like the object files). //

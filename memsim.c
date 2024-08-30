@@ -12,18 +12,16 @@ bool is_power_of_2(unsigned int value){
 };
 
 //Takes a virtual address and converts it to a physical address. The virtual address, the number of bits used for the offset, the starting location of the page table(s), and a pointer to the physical memory are also passed as parameters.
-unsigned int get_physical_address(unsigned int virtual_address,
-                         unsigned int offset_bits,
-                         unsigned int page_table_loc,
-                         const int* physical_memory){
-    unsigned int
-        page_number = (virtual_address >> offset_bits),
-        index = (page_number + page_table_loc),
-        frame_number = (physical_memory[index] >> offset_bits) << offset_bits,
-        offset_bits_mask = page_number << offset_bits,
-        offset = virtual_address ^ offset_bits_mask;
 
-    return (frame_number|offset);
+unsigned int get_physical_address(unsigned int virtual_address,
+                                  unsigned int offset_bits,
+                                  unsigned int page_table_loc,
+                                  const int* physical_memory){
+    unsigned int
+            page_number = (virtual_address >> offset_bits),
+            frame_number = physical_memory[page_number],
+            offset = virtual_address ^ (page_number << offset_bits);
+    return (frame_number + offset);
 };
 
 //Takes a virtual address and returns the value at the corresponding physical address. The virtual address, the number of bits used for the offset, the starting location of the page table(s), and a pointer to the physical memory are also passed as parameters.
@@ -31,8 +29,7 @@ int read_value(unsigned int virtual_address,
                unsigned int page_mask,
                unsigned int page_table_loc,
                int* physical_memory){
-    int index = get_physical_address(virtual_address, page_mask, page_table_loc, physical_memory);
-    return physical_memory[index];
+    return physical_memory[virtual_address]; // not actually the virtual address
 };
 
 //Takes a value and a virtual address and stores the value at the corresponding physical address. The virtual address, the number of bits used for the offset, the starting location of the page table(s), and a pointer to the physical memory are also passed as parameters.
@@ -41,8 +38,8 @@ void write_value( int value,
                  unsigned int page_mask,
                  unsigned int page_table_loc,
                  int* physical_memory){
-    int index = get_physical_address(virtual_address, page_mask, page_table_loc, physical_memory);
-    physical_memory[index] = value;
+
+    physical_memory[virtual_address] = value;
 };
 
 // verification helper function

@@ -19,8 +19,8 @@ unsigned int get_physical_address(unsigned int virtual_address,
                                   const int* physical_memory){
     unsigned int
             page_number = (virtual_address >> offset_bits),
-            frame_number = physical_memory[page_number],
-            offset = virtual_address ^ (page_number << offset_bits);
+            frame_number = physical_memory[page_number+page_table_loc],
+            offset = virtual_address &((1 << offset_bits)-1);
     return (frame_number + offset);
 };
 

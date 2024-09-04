@@ -13,62 +13,6 @@
 #include <time.h>
 #include "memsim.h"
 
-/*
- * This function varies from the last by assuming that the frame numbers are to be stored as written in the file, and
- * that the frame numbers begin at an offset indicated on line 4, and all values in the set of lines
- * (4, offset)U[offset+page_count, EOF|virtual_words+page_count] are words to be stored within frames in physical memory.
- * */
-void init_memory(FILE *stream, int page_table_location, int *physical_memory, int page_count, int num_words_virtual,
-                           int num_page_frame_words) {
-    // page_table_location is always at line 4 in the file, list of mappings starts there and ends at 4+page_table_location
-    fpos_t
-        content_start,
-        pt_beginning,
-        content_gap_end;
-
-    fgetpos(stream, &content_start);
-
-    // move filepointer -> line before physical page table location
-    for (int i = 0; i < page_table_location; ++i) {
-        fscanf(stream, "%*d");
-    }
-
-    // (Store a pointer to the location in the file where the frame numbers are stored)
-    fgetpos(stream, &pt_beginning);
-
-    int temp;
-    // retrieve page_count entries and insert into page table starting at pt_beginning, loop until all page table entries
-    // contain a frame number from the file
-
-    int j = page_table_location;
-    while(j < page_table_location+page_count){
-        fscanf(stream,"%d", &temp);
-        physical_memory[j] = temp;
-        printf("a[%d]: %d\n",j,physical_memory[j]);
-        ++j;
-    }
-    fgetpos(stream, &content_gap_end);
-    fsetpos(stream, &content_start);
-
-    for (int i = 0, l = 0, k, frameNumberWOffset; i < num_words_virtual + page_count; ++i, ++l) {
-        if(i >= page_table_location && i < page_table_location+page_count){
-            i += page_count;
-            fsetpos(stream, &content_gap_end);
-        }
-        k = (l/num_page_frame_words) + page_table_location; // this is (base + page)
-        frameNumberWOffset = physical_memory[k] + (i%num_page_frame_words);
-        int temp2;
-        fscanf(stream, "%d\n", &temp2);
-        physical_memory[frameNumberWOffset] = temp2;
-    }
-
-    j = page_table_location;
-    while(j < page_table_location+page_count){
-        printf("a[%d]: %d\n", j, physical_memory[j]);
-        ++j;
-    }
-
-}
 
 int main(const int argc, const char** argv){
     int
@@ -105,10 +49,14 @@ int main(const int argc, const char** argv){
     int* physical_memory = malloc( sizeof(int[wordsPhysical]));
 
     // populate the array
-    init_memory(stream, pageTableLocation, physical_memory, numPages, wordsVirtual, frameWords);
+    for (int i = 0, k; i < frameWords + numPages; ++i) {
+        fscanf(stream, "%d", &k);
+        physical_memory[i] = k;
+    }
 
     // print welcome message
     printf("%s", WELCOME);
+
     // begin CLI
     while (true){ // Checking in loop for q to avoid executing a full loop on sentinel input.
         printf(">");
